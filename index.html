@@ -3,6 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+<meta http-equiv="Pragma" content="no-cache">
+<meta http-equiv="Expires" content="0">
 <title>OpenCode launchpad</title>
 <style>
   :root { color-scheme: dark; }
@@ -31,7 +34,8 @@
 
 <details>
 <summary>First-time setup</summary>
-<p>Make a personal access token with the <b>codespaces</b> scope (classic) or the <b>Codespaces lifecycle admin</b> permission (fine-grained). Paste it above once; it stays in this browser's local storage and is only sent to api.github.com. Paste only the token itself — stray symbols like … or smart quotes are stripped automatically.</p>
+<p><b>Easiest:</b> make a <a href="https://github.com/settings/tokens/new" target="_blank" rel="noopener">classic token</a> with <b>repo</b> + <b>codespaces</b> scopes. Fine-grained tokens need repository access to <code>Opencoderemote</code> plus <b>Codespaces: read+write</b> and <b>Codespaces lifecycle admin: write</b>. A 403 means the token is missing these rights.</p>
+<p>Paste it above once; it stays in this browser's local storage and is only sent to api.github.com. Paste only the token itself — stray symbols like … or smart quotes are stripped automatically.</p>
 <p><a href="https://github.com/settings/tokens" target="_blank" rel="noopener">Create a token</a> · <a href="https://github.com/settings/codespaces" target="_blank" rel="noopener">Codespaces settings</a></p>
 <p>The first tap creates the Codespace if you don't have one yet. Free plan: 120 core-hours/month, ~60 hours on the 2-core machine.</p>
 </details>
@@ -63,7 +67,12 @@ async function api(path, options = {}) {
     ...options,
     headers: { Authorization: 'Bearer ' + token, Accept: 'application/vnd.github+json', ...(options.headers || {}) }
   });
-  if (!res.ok) throw new Error(path + ' → ' + res.status + ' ' + (await res.text()).slice(0, 160));
+  if (!res.ok) {
+    const detail = (await res.text()).slice(0, 160);
+    if (res.status === 403) throw new Error('403 — token lacks Codespaces rights. Use a classic token with repo + codespaces scopes (details below).');
+    if (res.status === 401) throw new Error('401 — token is bad or expired. Generate a new one (details below).');
+    throw new Error(path + ' → ' + res.status + ' ' + detail);
+  }
   return res.status === 204 ? null : res.json();
 }
 
