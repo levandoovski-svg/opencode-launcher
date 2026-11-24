@@ -1,0 +1,111 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>OpenCode launchpad</title>
+<style>
+  :root { color-scheme: dark; }
+  body { font: 17px/1.45 system-ui, sans-serif; background:#0d1117; color:#e6edf3; margin:0; padding:24px 18px; max-width:560px; }
+  h1 { font-size:24px; margin:0 0 6px; }
+  p { color:#9da7b3; margin:0 0 18px; }
+  label { display:block; font-size:13px; color:#9da7b3; margin-bottom:6px; }
+  input { width:100%; box-sizing:border-box; padding:12px; border-radius:8px; border:1px solid #30363d; background:#161b22; color:#e6edf3; font-size:16px; }
+  button { width:100%; padding:16px; margin-top:14px; border:0; border-radius:10px; background:#238636; color:white; font-size:19px; font-weight:700; }
+  button:disabled { opacity:.6; }
+  #status { margin-top:16px; min-height:44px; padding:12px; border-radius:8px; background:#161b22; color:#8b949e; word-break:break-word; }
+  details { margin-top:22px; color:#9da7b3; font-size:14px; }
+  summary { cursor:pointer; color:#58a6ff; }
+  a { color:#58a6ff; }
+</style>
+</head>
+<body>
+<h1>OpenCode launchpad</h1>
+<p>One tap wakes your Codespace and opens the agent chat. Save this page to your home screen.</p>
+
+<label for="token">GitHub token (saved only on this device)</label>
+<input id="token" type="password" autocomplete="off" placeholder="github_pat_… or ghp_…">
+
+<button id="launch">Open my agents</button>
+<div id="status">Ready.</div>
+
+<details>
+<summary>First-time setup</summary>
+<p>Make a personal access token with the <b>codespaces</b> scope (classic) or the <b>Codespaces lifecycle admin</b> permission (fine-grained). Paste it above once; it stays in this browser's local storage and is only sent to api.github.com.</p>
+<p><a href="https://github.com/settings/tokens" target="_blank" rel="noopener">Create a token</a> · <a href="https://github.com/settings/codespaces" target="_blank" rel="noopener">Codespaces settings</a></p>
+<p>The first tap creates the Codespace if you don't have one yet. Free plan: 120 core-hours/month, ~60 hours on the 2-core machine.</p>
+</details>
+
+<script>
+const OWNER = 'levandoovski-svg';
+const REPO = 'Opencoderemote';
+const PORT = 4096;
+const TOKEN_KEY = 'opencode-launcher-token';
+
+const el = id => document.getElementById(id);
+const tokenInput = el('token');
+tokenInput.value = localStorage.getItem(TOKEN_KEY) || '';
+tokenInput.addEventListener('change', () => localStorage.setItem(TOKEN_KEY, tokenInput.value.trim()));
+
+const say = text => { el('status').textContent = text; };
+const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+async function api(path, options = {}) {
+  const token = tokenInput.value.trim();
+  const res = await fetch('https://api.github.com' + path, {
+    ...options,
+    headers: { Authorization: 'Bearer ' + token, Accept: 'application/vnd.github+json', ...(options.headers || {}) }
+  });
+  if (!res.ok) throw new Error(path + ' → ' + res.status + ' ' + (await res.text()).slice(0, 160));
+  return res.status === 204 ? null : res.json();
+}
+
+async function launch() {
+  const button = el('launch');
+  button.disabled = true;
+  try {
+    if (!tokenInput.value.trim()) throw new Error('Paste your GitHub token above first.');
+    localStorage.setItem(TOKEN_KEY, tokenInput.value.trim());
+
+    say('Looking for your Codespace…');
+    const { codespaces } = await api(`/repos/${OWNER}/${REPO}/codespaces?per_page=100`);
+    const list = codespaces.filter(c => c.state !== 'Deleted').sort((a, b) => b.created_at.localeCompare(a.created_at));
+    let cs = list[0];
+
+    if (!cs) {
+      say('Creating your Codespace (first time only)…');
+      cs = await api(`/repos/${OWNER}/${REPO}/codespaces`, {
+        method: 'POST',
+        body: JSON.stringify({ ref: 'main', machine: 'basicLinux32gb', idle_timeout_minutes: 30, display_name: 'OpenCode Remote' })
+      });
+    }
+
+    if (cs.state !== 'Available') {
+      say('Waking ' + cs.name + ' (' + cs.state + ')…');
+      await api('/user/codespaces/' + encodeURIComponent(cs.name) + '/start', { method: 'POST' });
+    }
+
+    for (let i = 0; i < 90; i++) {
+      await sleep(4000);
+      const fresh = await api('/user/codespaces/' + encodeURIComponent(cs.name));
+      if (fresh.state === 'Available') {
+        say('Ready — opening OpenCode…');
+        await sleep(4000);
+        window.open('https://' + cs.name + '-' + PORT + '.app.github.dev', '_blank', 'noopener');
+        return;
+      }
+      if (fresh.state === 'Failed' || fresh.state === 'Deleted') throw new Error('Codespace is ' + fresh.state + '. Try again.');
+      say('Still starting (' + fresh.state + ')… ' + (i * 4) + 's');
+    }
+    throw new Error('Timed out waiting for the Codespace.');
+  } catch (e) {
+    say('ERROR: ' + e.message);
+  } finally {
+    button.disabled = false;
+  }
+}
+
+el('launch').addEventListener('click', launch);
+</script>
+</body>
+</html>
