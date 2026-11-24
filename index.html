@@ -31,7 +31,7 @@
 
 <details>
 <summary>First-time setup</summary>
-<p>Make a personal access token with the <b>codespaces</b> scope (classic) or the <b>Codespaces lifecycle admin</b> permission (fine-grained). Paste it above once; it stays in this browser's local storage and is only sent to api.github.com.</p>
+<p>Make a personal access token with the <b>codespaces</b> scope (classic) or the <b>Codespaces lifecycle admin</b> permission (fine-grained). Paste it above once; it stays in this browser's local storage and is only sent to api.github.com. Paste only the token itself — stray symbols like … or smart quotes are stripped automatically.</p>
 <p><a href="https://github.com/settings/tokens" target="_blank" rel="noopener">Create a token</a> · <a href="https://github.com/settings/codespaces" target="_blank" rel="noopener">Codespaces settings</a></p>
 <p>The first tap creates the Codespace if you don't have one yet. Free plan: 120 core-hours/month, ~60 hours on the 2-core machine.</p>
 </details>
@@ -46,14 +46,19 @@ const TOKEN_KEY = 'opencode-launcher-token';
 
 const el = id => document.getElementById(id);
 const tokenInput = el('token');
-tokenInput.value = localStorage.getItem(TOKEN_KEY) || '';
-tokenInput.addEventListener('change', () => localStorage.setItem(TOKEN_KEY, tokenInput.value.trim()));
+const cleanToken = raw => raw.replace(/[^\x21-\x7E]/g, '').trim();
+tokenInput.value = cleanToken(localStorage.getItem(TOKEN_KEY) || '');
+tokenInput.addEventListener('change', () => {
+  const clean = cleanToken(tokenInput.value);
+  tokenInput.value = clean;
+  localStorage.setItem(TOKEN_KEY, clean);
+});
 
 const say = text => { el('status').textContent = text; };
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 async function api(path, options = {}) {
-  const token = tokenInput.value.trim();
+  const token = cleanToken(tokenInput.value);
   const res = await fetch('https://api.github.com' + path, {
     ...options,
     headers: { Authorization: 'Bearer ' + token, Accept: 'application/vnd.github+json', ...(options.headers || {}) }
@@ -66,8 +71,10 @@ async function launch() {
   const button = el('launch');
   button.disabled = true;
   try {
-    if (!tokenInput.value.trim()) throw new Error('Paste your GitHub token above first.');
-    localStorage.setItem(TOKEN_KEY, tokenInput.value.trim());
+    if (!cleanToken(tokenInput.value)) throw new Error('Paste your GitHub token above first.');
+    const clean = cleanToken(tokenInput.value);
+    tokenInput.value = clean;
+    localStorage.setItem(TOKEN_KEY, clean);
 
     say('Looking for your Codespace…');
     const data = await api('/user/codespaces?per_page=100');
